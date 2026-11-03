@@ -1,0 +1,30 @@
+name: Update JSON schemas
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-schemas:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        version: [release, main]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements-${{ matrix.version }}.txt
+
+      - name: Generate schemas
+        run: python scripts/generate_schemas.py

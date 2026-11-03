@@ -1,4 +1,0 @@
-git+https://github.com/python-accelerator-middle-layer/pyaml.git@main
-pyaml-cs-oa[tango, epics] @ git+https://github.com/python-accelerator-middle-layer/pyaml-cs-oa.git@main
-git+https://github.com/python-accelerator-middle-layer/tango-pyaml.git@main
-ipykernel

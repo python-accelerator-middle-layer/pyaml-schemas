@@ -1,0 +1,3 @@
+pyaml
+pyaml-cs-oa[tango,epics]
+tango-pyaml
