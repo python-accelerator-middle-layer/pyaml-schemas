@@ -2,15 +2,22 @@ name: Update JSON schemas
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/update-schemas.yml
+      - scripts/**
+      - requirements-*.txt
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  update-schemas:
+  build:
     runs-on: ubuntu-latest
 
     strategy:
+      # A failure on main must not stop the release schema from updating
+      fail-fast: false
       matrix:
         version: [release, main]
 
@@ -27,4 +34,77 @@ jobs:
         run: pip install -r requirements-${{ matrix.version }}.txt
 
       - name: Generate schemas
-        run: python scripts/generate_schemas.py
+        run: python scripts/generate-schemas.py --output site/${{ matrix.version }}
+
+      - name: Upload schemas
+        uses: actions/upload-artifact@v4
+        with:
+          name: schemas-${{ matrix.version }}
+          path: site/
+          if-no-files-found: error
+
+  deploy:
+    needs: build
+    # Run even if one version failed, so the other one still gets published
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Download schemas
+        uses: actions/download-artifact@v4
+        with:
+          pattern: schemas-*
+          merge-multiple: true
+          path: site
+
+      - name: Assemble site
+        id: assemble
+        env:
+          BASE_URL: https://python-accelerator-middle-layer.github.io/pyaml-schemas
+        run: |
+          # A Pages deployment replaces the whole site, so a version that failed
+          # to build keeps its last published schema instead of disappearing.
+          built=0
+          changed=false
+          for version in release main; do
+            file="$version/accelerator.schema.json"
+            previous="$RUNNER_TEMP/$version.previous.json"
+            published=false
+            if curl -fsSL --retry 3 -o "$previous" "$BASE_URL/$file"; then
+              published=true
+            fi
+            if [ -f "site/$file" ]; then
+              built=$((built + 1))
+              if [ "$published" = false ] || ! cmp -s "site/$file" "$previous"; then
+                changed=true
+              fi
+            elif [ "$published" = true ]; then
+              echo "::warning::Keeping last published $version schema"
+              mkdir -p "site/$version"
+              cp "$previous" "site/$file"
+            fi
+          done
+          if [ "$built" -eq 0 ]; then
+            echo "::error::No schemas were built"
+            exit 1
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+      - name: Upload site
+        if: steps.assemble.outputs.changed == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        if: steps.assemble.outputs.changed == 'true'
+        uses: actions/deploy-pages@v4
